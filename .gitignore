@@ -1,0 +1,9 @@
+kafka_twitter/config.py
+*.pyc
+__pycache__
+.DS_Store
+.idea
+.swp
+migrations
+olxai/.env
+.vscode
