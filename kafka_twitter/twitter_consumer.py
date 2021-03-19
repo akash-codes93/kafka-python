@@ -29,7 +29,9 @@ class ClsTwitterConsumer:
             'bootstrap.servers': self.__class__._config['BOOTSTRAP_SERVER'],
             'group.id': 'example1',
             'auto.offset.reset': 'beginning',
+            # 'auto.offset.reset': 'earliest',
             'session.timeout.ms': 6000,
+            'enable.auto.commit': False
            }
 
     def get_consumer(self):
@@ -39,9 +41,8 @@ class ClsTwitterConsumer:
 
         while True:
             tweet = self.consumer.poll(timeout=1.0)
-
             if tweet is None:
-                break
+                continue
 
             if tweet.error():
                 if tweet.error().code() == KafkaError._PARTITION_EOF:
@@ -53,6 +54,21 @@ class ClsTwitterConsumer:
             else:
                 yield tweet
 
+                self.consumer.commit()
+
+    def prepare_tweet(self):
+        for tweet in self.get_tweets():
+            tweet = json.loads(tweet.value())
+            try:
+                doc = {
+                    "_id": tweet["id"],
+                    "text": tweet["text"]
+                }
+            except KeyError:
+                print("skipping tweet: ", tweet)
+            else:
+                yield doc
+
     def close(self):
         self.consumer.close()
 
@@ -60,10 +76,29 @@ class ClsTwitterConsumer:
         count = 0
         try:
             for tweet in self.get_tweets():
-                tweet = json.loads(tweet.value())
-                self.elasticSearch.insert("twitter", {"id": tweet["id"], "text": tweet["text"]})
-                print("Tweets inserted: {0}, latest tweet: {1}".format(str(count), tweet["text"]))
-                count += 1
+                try:
+                    # this is a unique id to every tweet present in broker; we can use this also instead of tweet id
+                    unique_id = tweet.topic() + '_' + str(tweet.partition()) + '_' + str(tweet.offset())
+                    print(unique_id)
+
+                    tweet = json.loads(tweet.value())
+                    self.elasticSearch.insert("twitter", {"id": tweet["id"], "text": tweet["text"]})
+
+                    print("Tweets inserted: {0}, latest tweet: {1}".format(str(count), tweet["text"]))
+                    count += 1
+
+                except KeyError:
+                    print("skipping tweet: ", tweet)
+
+        except Exception as e:
+            print("Error inserting in elastic search: {error}".format(error=str(e)))
+
+        finally:
+            self.elasticSearch.close()
+
+    def post_to_elastic_search_bulk(self):
+        try:
+            self.elasticSearch.bulk_insert("twitter", self.prepare_tweet)
         except Exception as e:
             print("Error inserting in elastic search: {error}".format(error=str(e)))
         finally:
@@ -73,5 +108,5 @@ class ClsTwitterConsumer:
 if __name__ == '__main__':
 
     twitterConsumer = ClsTwitterConsumer()
-    twitterConsumer.post_to_elastic_search()
+    twitterConsumer.post_to_elastic_search_bulk()
     twitterConsumer.close()

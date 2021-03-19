@@ -2,6 +2,7 @@ import re
 import json
 
 from elasticsearch import Elasticsearch, ElasticsearchException
+from elasticsearch.helpers import streaming_bulk
 
 
 class ClsElasticSearch:
@@ -50,6 +51,19 @@ class ClsElasticSearch:
             print("Document inserted")
         except ElasticsearchException as e:
             print("Error occurred while inserting, error: ", str(e))
+
+    def bulk_insert(self, index, _generator):
+        successes = 0
+        try:
+            for ok, action in streaming_bulk(
+                    client=self.es, index=index, actions=_generator(),
+            ):
+
+                successes += ok
+        except ElasticsearchException as e:
+            print("Error occurred while inserting, error: ", str(e))
+        finally:
+            print("Indexed %d documents" % successes)
 
 
 if __name__ == '__main__':
